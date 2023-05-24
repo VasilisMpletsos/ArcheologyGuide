@@ -92,8 +92,10 @@ intro = [
     'In front of you is the ',
     'You are standing in front of the ',
     'You have opened ',
+    'You have opened the ',
     'You are in front of ',
     'You are looking at the ',
+    'You are looking ',
     'You are seeing ',
     'Now you are looking at the ',
     'Now you are looking at ',
@@ -128,6 +130,8 @@ def get_building_general_informations(view_id: int):
 
 @app.get("/questions/{view_id}")
 def read_item(view_id: int, question: Union[str, None] = None):
+    if str(view_id) in known_views:
+        return {"answer": 'Return answer for question'}
     # tokenized_query = similarity_tokenizer(question, padding=True, truncation=True, return_tensors='pt')
     # embedded_query = similarity_model(**tokenized_query)
     # question_embedding = mean_pooling(embedded_query, tokenized_query['attention_mask'])
@@ -138,4 +142,4 @@ def read_item(view_id: int, question: Union[str, None] = None):
     #     most_similar_passage_index = np.argmax(similarities)
     #     return {'passage': building_passages[building_index][most_similar_passage_index]}
     # else:
-    return {'error': 'Building not found'}
+    return {'error': "We cannot answer this question."}
