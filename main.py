@@ -84,8 +84,7 @@ def paraphrase(text):
     text = '. '.join(final_sentences)
     return text
 
-
-# ---------------------- API Section ----------------------- #
+# ---------------------- General Section ----------------------- #
 
 intro = [
     'You are looking at ',
@@ -112,32 +111,20 @@ views = {
     '6': 'building 6 of the Middle Plateau. ',
 }
 
+known_views = views.keys()
+
+# ---------------------- API Section ----------------------- #
+
+
 @app.get("/view/{view_id}")
 def get_building_general_informations(view_id: int):
     random_intro = random.choice(intro)
-    if view_id == 1:
-        answer = paraphrase(general_descriptions[0])
+    if str(view_id) in known_views:
+        answer = paraphrase(general_descriptions[int(view_id) - 1])
         answer = random_intro + views[str(view_id)] + answer
-        return {"story": answer}
-    if view_id == 2:
-        answer = random_intro + views[str(view_id)]
-        return {"story": answer}
-    if view_id == 3:
-        answer = random_intro + views[str(view_id)]
-        return {"story": answer}
-    if view_id == 4:
-        answer = random_intro + views[str(view_id)]
-        return {"story": answer}
-    if view_id == 5:
-        answer = random_intro + views[str(view_id)]
-        return {"story": answer}
-    if view_id == 6:
-        answer = random_intro + views[str(view_id)]
         return {"story": answer}
     else:
         return {"story": None}
-    
-known_views = [1, 2, 3, 4, 5, 6]
 
 @app.get("/questions/{view_id}")
 def read_item(view_id: int, question: Union[str, None] = None):
