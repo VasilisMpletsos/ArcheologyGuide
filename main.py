@@ -9,6 +9,8 @@ from parrot import Parrot
 from typing import Union
 from fastapi import FastAPI
 from transformers import AutoTokenizer, AutoModel, AutoModelForSeq2SeqLM, pipeline
+from langchain import PromptTemplate, LLMChain
+from langchain.llms import HuggingFacePipeline
 from sklearn.metrics.pairwise import cosine_similarity
 
 # Suppress warnings
@@ -27,6 +29,24 @@ print('INFO:     Loaded General Descriptions')
 paraphraser = Parrot(model_tag="prithivida/parrot_paraphraser_on_T5", use_gpu=False)
 print('INFO:     Loaded Paraphraser Model')
 
+# Load the LLM model
+LLM = pipeline(
+    model="databricks/dolly-v2-3b", 
+    torch_dtype=torch.bfloat16, 
+    trust_remote_code=True,
+    return_full_text=True,
+    device_map="auto",
+    task="text-generation"
+)
+# template for an instruction with input
+prompt_with_context = PromptTemplate(
+    input_variables=["instruction", "context"],
+    template="{instruction}\n\nInput:\n{context}")
+
+hf_pipeline = HuggingFacePipeline(pipeline=LLM)
+llm_context_chain = LLMChain(llm=hf_pipeline, prompt=prompt_with_context)
+print('INFO:     Loaded LLM Model')
+
 # Mean Pooling - Take attention mask into account for correct averaging
 def mean_pooling(model_output, attention_mask):
     token_embeddings = model_output[0] #First element of model_output contains all token embeddings
@@ -38,21 +58,25 @@ similarity_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-
 similarity_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
 print('INFO:     Loaded Similarity Model')
 
-# building_passages = []
-# building_embeddings = []
-# for i in range(0, 6):
-#     building_passages.append(pd.read_csv('data/building' + str(i) + '_passages.csv')['passages'].to_list())
-#     encoded_input = similarity_tokenizer(building_passages[i], padding=True, truncation=True, return_tensors='pt')
-#     with torch.no_grad():
-#         model_output = similarity_model(**encoded_input)
-#     embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
-#     building_embeddings.append(embeddings.detach().numpy())
+building1_passages = pd.read_csv('data/building1_passages.csv')['passages'].to_list()
+building2_passages = pd.read_csv('data/building2_passages.csv')['passages'].to_list()
+building3_passages = pd.read_csv('data/building3_passages.csv')['passages'].to_list()
+building5_passages = pd.read_csv('data/building5_passages.csv')['passages'].to_list()
+
+building_passages = [building1_passages, building2_passages, building3_passages, building5_passages]
+building_embeddings = []
+for i, passages in enumerate(building_passages):
+    encoded_input = similarity_tokenizer(building_passages[i], padding=True, truncation=True, return_tensors='pt')
+    with torch.no_grad():
+        model_output = similarity_model(**encoded_input)
+    embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
+    building_embeddings.append(embeddings.detach().numpy())
 
 def paraphrase(text):
     # Split text into sentences
     sentences = text.split('.')
     # Keep sentences with more than 20 characters
-    sentences = [sentence for sentence in sentences if len(sentence) > 20]
+    sentences = [sentence.strip() for sentence in sentences[:-1]]
     # Initialize final sentences
     final_sentences = []
     # Loop through sentences
@@ -105,12 +129,10 @@ intro = [
 ]
 
 views = {
-    '1': 'building 1 of the Middle Plateau. ',
-    '2': 'building 2 of the Middle Plateau. ',
-    '3': 'building 3 of the Middle Plateau. ',
-    '4': 'building 4 of the Middle Plateau. ',
-    '5': 'building 5 of the Middle Plateau. ',
-    '6': 'building 6 of the Middle Plateau. ',
+    '0': 'building 1 of the Middle Plateau. ',
+    '1': 'building 2 of the Middle Plateau. ',
+    '2': 'building 3 of the Middle Plateau. ',
+    '3': 'building 5 of the Middle Plateau. ',
 }
 
 known_views = views.keys()
@@ -122,24 +144,31 @@ known_views = views.keys()
 def get_building_general_informations(view_id: int):
     random_intro = random.choice(intro)
     if str(view_id) in known_views:
-        answer = paraphrase(general_descriptions[int(view_id) - 1])
+        answer = paraphrase(general_descriptions[int(view_id)])
         answer = random_intro + views[str(view_id)] + answer
         return {"story": answer}
     else:
         return {"story": None}
 
 @app.get("/questions/{view_id}")
-def read_item(view_id: int, question: Union[str, None] = None):
+def get_answer_to_question(view_id: int, question: Union[str, None] = None):
     if str(view_id) in known_views:
-        return {"answer": 'Return answer for question'}
-    # tokenized_query = similarity_tokenizer(question, padding=True, truncation=True, return_tensors='pt')
-    # embedded_query = similarity_model(**tokenized_query)
-    # question_embedding = mean_pooling(embedded_query, tokenized_query['attention_mask'])
-    # question_embedding = question_embedding.detach().numpy()
-    # if view_id in known_buildings:
-    #     building_index = known_buildings.index(view_id)
-    #     similarities = cosine_similarity(question_embedding, building_embeddings[building_index])
-    #     most_similar_passage_index = np.argmax(similarities)
-    #     return {'passage': building_passages[building_index][most_similar_passage_index]}
-    # else:
-    return {'error': "We cannot answer this question."}
+        tokenized_query = similarity_tokenizer(question, padding=True, truncation=True, return_tensors='pt')
+        embedded_query = similarity_model(**tokenized_query)
+        question_embedding = mean_pooling(embedded_query, tokenized_query['attention_mask'])
+        question_embedding = question_embedding.detach().numpy()
+        similarities = cosine_similarity(question_embedding, building_embeddings[view_id])
+        max_score = float(similarities.max())
+        if max_score > 0.2:
+            context = building_passages[view_id][np.argmax(similarities)]
+            question = 'Answer the following question only with the provided input. ' + question;
+            answer = llm_context_chain.predict(instruction=question, context=context).lstrip()
+            return {'passage': context, 'answer':answer, 'score': max_score}
+        else:
+            return {'passage': "We cannot answer this question.", 'score': max_score}
+    else:
+        return {'error': "Wrong view id."}
+    
+@app.get("/get_views")
+def give_views():
+        return views
