@@ -18,16 +18,48 @@ warnings.filterwarnings("ignore")
 
 app = FastAPI()
 
+# Load the paraphraser model
+gpu_available = torch.cuda.is_available()
+paraphraser = Parrot(model_tag="prithivida/parrot_paraphraser_on_T5", use_gpu=gpu_available)
+print('INFO:     Loaded Paraphraser Model')
+
+# ---------------------- Functions needed ----------------------- #
+
+def clean_text(text):
+    # strip sentenece
+    text = text.strip()
+    # remove tabs
+    text = text.replace('\t', '')
+    # remove new lines
+    text = text.replace('\n', '')
+    return text
+
+# Mean Pooling - Take attention mask into account for correct averaging
+def mean_pooling(model_output, attention_mask):
+    token_embeddings = model_output[0] #First element of model_output contains all token embeddings
+    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+def paraphase_text(text):
+    para_phrases = paraphraser.augment(input_phrase=text, diversity_ranker="levenshtein", do_diverse=False, adequacy_threshold = 0.7, fluency_threshold = 0.7);
+    if para_phrases is not None:
+        random_answer = random.choice(para_phrases)[0];
+        return random_answer
+    else:
+        return text
+
+
 # ---------------------- Initiallization Section ----------------------- #
 
 # Load general descriptions
-general_descriptions = pd.read_csv('./data/general_informations.csv')
-general_descriptions = general_descriptions['general_informations'].to_list()
+# reat txt file
+with open('./data/general_description.txt', 'r') as f:
+    general_descriptions = f.readlines()
+general_descriptions = [clean_text(sentence) for sentence in general_descriptions]
+general_informations = pd.read_csv('./data/general_informations.csv')
+general_informations = general_informations['general_informations'].to_list()
 print('INFO:     Loaded General Descriptions')
 
-# Load the paraphraser model
-paraphraser = Parrot(model_tag="prithivida/parrot_paraphraser_on_T5", use_gpu=False)
-print('INFO:     Loaded Paraphraser Model')
 
 # Load the LLM model
 LLM = pipeline(
@@ -46,12 +78,6 @@ prompt_with_context = PromptTemplate(
 hf_pipeline = HuggingFacePipeline(pipeline=LLM)
 llm_context_chain = LLMChain(llm=hf_pipeline, prompt=prompt_with_context)
 print('INFO:     Loaded LLM Model')
-
-# Mean Pooling - Take attention mask into account for correct averaging
-def mean_pooling(model_output, attention_mask):
-    token_embeddings = model_output[0] #First element of model_output contains all token embeddings
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 # Load model from HuggingFace Hub
 similarity_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
@@ -72,45 +98,32 @@ for i, passages in enumerate(building_passages):
     embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
     building_embeddings.append(embeddings.detach().numpy())
 
-def paraphrase(text):
-    # Split text into sentences
-    sentences = text.split('.')
-    # Keep sentences with more than 20 characters
-    sentences = [sentence.strip() for sentence in sentences[:-1]]
+def paraphrase(sentences, paraphrase_rate=0.25, keep_rate=0.30, shuffle_chance=0.25):
     # Initialize final sentences
     final_sentences = []
+    # Drop randomly keep_rate % of the sentences
+    sentences = [sentence for sentence in sentences if random.random() < keep_rate]
     # Loop through sentences
-    for sentence in sentences:
-        # Paraphrase sentence with chance of 70%
-        if random.random() < 0.50:
-            # Paraphrase sentence
-            para_phrases = paraphraser.augment(input_phrase=sentence,
-                                            diversity_ranker="levenshtein",
-                                            do_diverse=False, 
-                                            adequacy_threshold = 0.5, 
-                                            fluency_threshold = 0.5)
-            # If there are paraphrases generated
-            if para_phrases is not None:
-                # Get a random paraphrase
-                random_answer = random.choice(para_phrases)[0]
-                final_sentences.append(random_answer)
-            else:
-                # Append the original sentence
-                final_sentences.append(sentence)
-        else:
-            # Append the original sentence
-            final_sentences.append(sentence)
-    # Drop randomly 25% of the sentences
-    final_sentences = [sentence for sentence in final_sentences if random.random() > 0.25]
+    random_paraphrase = [random.random() < paraphrase_rate for i in range(len(sentences))]
+    random_phrases = [paraphase_text(sentence) if random_paraphrase[i] else sentence for i, sentence in enumerate(sentences)]
     # Shuffle final sentences
-    random.shuffle(final_sentences)
-    # Join sentences
-    text = '. '.join(final_sentences)
-    return text
+    if random.random() < shuffle_chance:
+        random.shuffle(random_phrases)
+    return random_phrases
 
 # ---------------------- General Section ----------------------- #
 
 intro = [
+    'Welcome to the Vryokastro. ',
+    'Welcome to the Vryokastro, the ancient city of the island of Kythnos. ',
+    'Welcome to the archeological site of Vryokastro. ',
+    'You are in the archeological site of Vryokastro. ',
+    'You are in the archeological site of Vryokastro, the ancient city of the island of Kythnos. ',
+    'This is the archeological site of Vryokastro. ',
+    'This is the archeological site of Vryokastro, the ancient city of the island of Kythnos. ',
+]
+
+openings = [
     'You are looking at ',
     'This is the ',
     'In front of you is the ',
@@ -140,12 +153,25 @@ known_views = views.keys()
 # ---------------------- API Section ----------------------- #
 
 
+@app.get("/intro")
+def get_intro():
+    random_intro = random.choice(intro)
+    answer = paraphrase(general_descriptions, paraphrase_rate=0, keep_rate=0.8, shuffle_chance=0.90)
+    answer = ''.join(answer)
+    answer = random_intro + answer
+    return {"intro": answer}
+    
 @app.get("/view/{view_id}")
 def get_building_general_informations(view_id: int):
-    random_intro = random.choice(intro)
+    random_start = random.choice(openings)
     if str(view_id) in known_views:
-        answer = paraphrase(general_descriptions[int(view_id)])
-        answer = random_intro + views[str(view_id)] + answer
+        # Split text into sentences
+        sentences = general_informations[int(view_id)].split('.')
+        # Keep sentences with more than 20 characters
+        sentences = [clean_text(sentence) for sentence in sentences[:-1]]
+        answer = paraphrase(sentences, paraphrase_rate=0.3, keep_rate=0.75, shuffle_chance=0.75)
+        answer = '. '.join(answer)
+        answer = random_start + views[str(view_id)] + answer
         return {"story": answer}
     else:
         return {"story": None}
