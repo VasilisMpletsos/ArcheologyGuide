@@ -53,9 +53,9 @@ def paraphase_text(text):
 
 # Load general descriptions
 # reat txt file
-with open('./data/general_description.txt', 'r') as f:
-    general_descriptions = f.readlines()
-general_descriptions = [clean_text(sentence) for sentence in general_descriptions]
+with open('./data/intro_informations.txt', 'r') as f:
+    intro_story = f.readlines()
+intro_story = [clean_text(sentence) for sentence in intro_story]
 general_informations = pd.read_csv('./data/general_informations.csv')
 general_informations = general_informations['general_informations'].to_list()
 print('INFO:     Loaded General Descriptions')
@@ -90,6 +90,7 @@ building3_passages = pd.read_csv('data/building3_passages.csv')['passages'].to_l
 building5_passages = pd.read_csv('data/building5_passages.csv')['passages'].to_list()
 
 building_passages = [building1_passages, building2_passages, building3_passages, building5_passages]
+
 building_embeddings = []
 for i, passages in enumerate(building_passages):
     encoded_input = similarity_tokenizer(building_passages[i], padding=True, truncation=True, return_tensors='pt')
@@ -142,13 +143,22 @@ openings = [
 ]
 
 views = {
-    '0': 'building 1 of the Middle Plateau. ',
-    '1': 'building 2 of the Middle Plateau. ',
-    '2': 'building 3 of the Middle Plateau. ',
-    '3': 'building 5 of the Middle Plateau. ',
+    '0': 'Building 1 of the Middle Plateau. ',
+    '1': 'Building 2 of the Middle Plateau. ',
+    '2': 'Building 3 of the Middle Plateau. ',
+    '3': 'Building 5 of the Middle Plateau. ',
 }
-
 known_views = views.keys()
+
+unanswerable_questions = [
+    "I do not know the answer to this question.",
+    "Sorry i cannot answer this question.",
+    "Sadly i can't answer this question.",
+    "I don't know the answer to this question.",
+    "I don't know the answer to this question, sorry.",
+    "I do not have the answer to this question.",
+    "Can you ask me something else? I don't know the answer to this question.",
+]
 
 # ---------------------- API Section ----------------------- #
 
@@ -156,20 +166,20 @@ known_views = views.keys()
 @app.get("/intro")
 def get_intro():
     random_intro = random.choice(intro)
-    answer = paraphrase(general_descriptions, paraphrase_rate=0, keep_rate=0.8, shuffle_chance=0.90)
+    answer = paraphrase(intro_story, paraphrase_rate=0, keep_rate=0.8, shuffle_chance=0.90)
     answer = ''.join(answer)
     answer = random_intro + answer
     return {"intro": answer}
     
 @app.get("/view/{view_id}")
-def get_building_general_informations(view_id: int):
+def get_building_intro(view_id: int):
     random_start = random.choice(openings)
     if str(view_id) in known_views:
         # Split text into sentences
         sentences = general_informations[int(view_id)].split('.')
         # Keep sentences with more than 20 characters
         sentences = [clean_text(sentence) for sentence in sentences[:-1]]
-        answer = paraphrase(sentences, paraphrase_rate=0.3, keep_rate=0.75, shuffle_chance=0.75)
+        answer = paraphrase(sentences, paraphrase_rate=0.1, keep_rate=0.8, shuffle_chance=0.9)
         answer = '. '.join(answer)
         answer = random_start + views[str(view_id)] + answer
         return {"story": answer}
@@ -185,16 +195,16 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         question_embedding = question_embedding.detach().numpy()
         similarities = cosine_similarity(question_embedding, building_embeddings[view_id])
         max_score = float(similarities.max())
+        context = building_passages[view_id][np.argmax(similarities)]
         if max_score > 0.2:
-            context = building_passages[view_id][np.argmax(similarities)]
             question = 'Answer the following question only with the provided input. ' + question;
             answer = llm_context_chain.predict(instruction=question, context=context).lstrip()
             return {'passage': context, 'answer':answer, 'score': max_score}
         else:
-            return {'passage': "We cannot answer this question.", 'score': max_score}
+            return {'passage': context, 'answer': random.choice(unanswerable_questions), 'score': max_score}
     else:
         return {'error': "Wrong view id."}
     
 @app.get("/get_views")
-def give_views():
+def get_views():
         return views
