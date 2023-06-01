@@ -19,8 +19,12 @@ warnings.filterwarnings("ignore")
 app = FastAPI()
 
 # Load the paraphraser model
-gpu_available = torch.cuda.is_available()
-paraphraser = Parrot(model_tag="prithivida/parrot_paraphraser_on_T5", use_gpu=gpu_available)
+# gpu_available = torch.cuda.is_available()
+# paraphraser = Parrot(model_tag="prithivida/parrot_paraphraser_on_T5", use_gpu=gpu_available)
+tokenizer = AutoTokenizer.from_pretrained("prithivida/parrot_paraphraser_on_T5")
+model = AutoModelForSeq2SeqLM.from_pretrained("./experiments/FineTunedParrotParaphraser")
+model.to('cuda');
+task_prefix = "paraphrase: ";
 print('INFO:     Loaded Paraphraser Model')
 
 # ---------------------- Functions needed ----------------------- #
@@ -41,9 +45,25 @@ def mean_pooling(model_output, attention_mask):
     return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
 
 def paraphase_text(text):
-    para_phrases = paraphraser.augment(input_phrase=text, diversity_ranker="levenshtein", do_diverse=False, adequacy_threshold = 0.7, fluency_threshold = 0.7);
-    if para_phrases is not None:
-        random_answer = random.choice(para_phrases)[0];
+    # para_phrases = paraphraser.augment(input_phrase=text, diversity_ranker="levenshtein", do_diverse=False, adequacy_threshold = 0.7, fluency_threshold = 0.7);
+    # get 2 instructions from the dataset
+    inputs = tokenizer([task_prefix + text], return_tensors="pt", padding=True)
+    inputs = inputs.to('cuda')
+    preds = model.generate(
+              inputs['input_ids'],
+              do_sample=False, 
+              max_length=256, 
+              num_beams = 8,
+              num_beam_groups = 4,
+              diversity_penalty = 2.0,
+              early_stopping=True,
+              num_return_sequences=5
+              )
+    predicted_answers = tokenizer.batch_decode(preds, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+    # Remove duplicates
+    predicted_answers = list(set(predicted_answers))
+    if predicted_answers is not None:
+        random_answer = random.choice(predicted_answers);
         return random_answer
     else:
         return text
@@ -100,8 +120,6 @@ for i, passages in enumerate(building_passages):
     building_embeddings.append(embeddings.detach().numpy())
 
 def paraphrase(sentences, paraphrase_rate=0.25, keep_rate=0.30, shuffle_chance=0.25):
-    # Initialize final sentences
-    final_sentences = []
     # Drop randomly keep_rate % of the sentences
     sentences = [sentence for sentence in sentences if random.random() < keep_rate]
     # Loop through sentences
