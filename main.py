@@ -16,7 +16,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 # Suppress warnings
 warnings.filterwarnings("ignore")
 
-app = FastAPI()
+app = FastAPI();
 
 # Load the paraphraser model
 # gpu_available = torch.cuda.is_available()
@@ -108,16 +108,25 @@ building1_passages = pd.read_csv('data/building1_passages.csv')['passages'].to_l
 building2_passages = pd.read_csv('data/building2_passages.csv')['passages'].to_list()
 building3_passages = pd.read_csv('data/building3_passages.csv')['passages'].to_list()
 building5_passages = pd.read_csv('data/building5_passages.csv')['passages'].to_list()
+demeters_temple_passages = pd.read_csv('data/demeter_sanctuary_passages.csv')['passages'].to_list()
+vryokastraki_passages = pd.read_csv('data/vryokastraki_passages.csv')['passages'].to_list()
+christian_basilica_passages = pd.read_csv('data/christian_basilica_passages.csv')['passages'].to_list()
 
-building_passages = [building1_passages, building2_passages, building3_passages, building5_passages]
+passages = [building1_passages, 
+            building2_passages, 
+            building3_passages, 
+            building5_passages, 
+            demeters_temple_passages, 
+            vryokastraki_passages, 
+            christian_basilica_passages]
 
-building_embeddings = []
-for i, passages in enumerate(building_passages):
-    encoded_input = similarity_tokenizer(building_passages[i], padding=True, truncation=True, return_tensors='pt')
+view_embeddings = []
+for i, passages in enumerate(passages):
+    encoded_input = similarity_tokenizer(passages[i], padding=True, truncation=True, return_tensors='pt')
     with torch.no_grad():
         model_output = similarity_model(**encoded_input)
     embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
-    building_embeddings.append(embeddings.detach().numpy())
+    view_embeddings.append(embeddings.detach().numpy())
 
 def paraphrase(sentences, paraphrase_rate=0.25, keep_rate=0.30, shuffle_chance=0.25):
     # Drop randomly keep_rate % of the sentences
@@ -165,6 +174,9 @@ views = {
     '1': 'Building 2 of the Middle Plateau. ',
     '2': 'Building 3 of the Middle Plateau. ',
     '3': 'Building 5 of the Middle Plateau. ',
+    '4': "Demeter's Sanctuary on the Acropolis. ",
+    '5': 'Vryokastraki Island. ',
+    '6': 'Cristian Basilica. ',
 }
 known_views = views.keys()
 
@@ -211,9 +223,9 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         embedded_query = similarity_model(**tokenized_query)
         question_embedding = mean_pooling(embedded_query, tokenized_query['attention_mask'])
         question_embedding = question_embedding.detach().numpy()
-        similarities = cosine_similarity(question_embedding, building_embeddings[view_id])
+        similarities = cosine_similarity(question_embedding, view_embeddings[view_id])
         max_score = float(similarities.max())
-        context = building_passages[view_id][np.argmax(similarities)]
+        context = passages[view_id][np.argmax(similarities)]
         if max_score > 0.2:
             question = 'Answer the following question only with the provided input. ' + question;
             answer = llm_context_chain.predict(instruction=question, context=context).lstrip()
