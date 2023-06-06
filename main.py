@@ -245,7 +245,7 @@ def get_intro():
     intro_sentences = random_intro + intro_sentences
     return {"intro": intro_sentences}
     
-@app.get("/view/{view_id}")
+@app.get("/views/{view_id}")
 def get_building_intro(view_id: int):
     random_start = random.choice(openings)
     if str(view_id) in known_views:
