@@ -115,6 +115,9 @@ building5_passages = pd.read_csv('data/building5_passages.csv')['passages'].to_l
 demeters_temple_passages = pd.read_csv('data/demeter_sanctuary_passages.csv')['passages'].to_list()
 vryokastraki_passages = pd.read_csv('data/vryokastraki_passages.csv')['passages'].to_list()
 christian_basilica_passages = pd.read_csv('data/christian_basilica_passages.csv')['passages'].to_list()
+sanctuary_geometric_classical_times_passages = pd.read_csv('data/sanctuary_geometric_classical_times_passages.csv')['passages'].to_list()
+fortress_passages = pd.read_csv('data/fortress_passages.csv')['passages'].to_list()
+necropolis_passages = pd.read_csv('data/necropolis_passages.csv')['passages'].to_list()
 
 passages = [building1_passages, 
             building2_passages, 
@@ -122,7 +125,10 @@ passages = [building1_passages,
             building5_passages, 
             demeters_temple_passages, 
             vryokastraki_passages, 
-            christian_basilica_passages]
+            christian_basilica_passages,
+            sanctuary_geometric_classical_times_passages,
+            fortress_passages,
+            necropolis_passages]
 
 view_embeddings = []
 for i, sentences in enumerate(passages):
@@ -181,6 +187,9 @@ views = {
     '4': "Demeter's Sanctuary on the Acropolis. ",
     '5': 'Vryokastraki Island. ',
     '6': 'Cristian Basilica. ',
+    '7': 'Sanctuary of the Geometric and Classical times. ',
+    '8': 'Fortress in the southern sector of Acropolis. ',
+    '9': 'Necropolis of the ancient city. ',
 }
 known_views = views.keys()
 
@@ -230,19 +239,21 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         similarities = cosine_similarity(question_embedding, view_embeddings[view_id])
         max_score = float(similarities.max())
         context = passages[view_id][np.argmax(similarities)]
-        if max_score > 0.15:
-            
-            QA_input = {
-                'question': question,
-                'context': context
-            }
-            res = qa(QA_input)
-            answer_qa = res['answer']
-            
-            question = 'Answer the following question only with the provided input. ' + question;
-            answer_llm = llm_context_chain.predict(instruction=question, context=context).lstrip()
-            
-            return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'score': max_score}
+        
+        QA_input = {
+            'question': question,
+            'context': context
+        }
+        res = qa(QA_input)
+        answer_qa = res['answer']
+        
+        question = 'Answer the following question only with the provided input. If not answer is found tell that you cannot answer based on this context.' + question;
+        answer_llm = llm_context_chain.predict(instruction=question, context=context).lstrip()
+        
+        if max_score > 0.15 and max_score < 0.5:
+            return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'given_answer': answer_llm,'score': max_score}
+        elif max_score >= 0.5:
+            return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'given_answer': answer_qa,'score': max_score}
         else:
             return {'passage': context, 'answer': random.choice(unanswerable_questions), 'score': max_score}
     else:
