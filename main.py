@@ -8,7 +8,7 @@ import warnings
 from parrot import Parrot
 from typing import Union
 from fastapi import FastAPI
-from transformers import AutoTokenizer, AutoModel, AutoModelForQuestionAnswering, AutoModelForSeq2SeqLM, pipeline
+from transformers import AutoTokenizer, AutoModel, AutoModelForSeq2SeqLM, pipeline, T5ForConditionalGeneration, T5Tokenizer
 from langchain import PromptTemplate, LLMChain
 from langchain.llms import HuggingFacePipeline
 from sklearn.metrics.pairwise import cosine_similarity
@@ -31,7 +31,34 @@ model_name = "deepset/roberta-base-squad2"
 qa = pipeline('question-answering', model=model_name, tokenizer=model_name)
 print('INFO:     Loaded QA Model')
 
+model_name = './experiments/FineTunedQuestionGeneration'
+question_tokenizer = T5Tokenizer.from_pretrained(model_name)
+question_model = T5ForConditionalGeneration.from_pretrained(model_name)
+question_model.to('cuda');
+print('INFO:     Loaded Question Generation Model')
+
 # ---------------------- Functions needed ----------------------- #
+
+def create_question(passage):
+    sentence_inputs = question_tokenizer([passage], return_tensors="pt", padding=True)
+    sentence_inputs = sentence_inputs.to('cuda')
+    preds = question_model.generate(
+              sentence_inputs['input_ids'],
+              do_sample=False, 
+              max_length=256, 
+              num_beams = 8,
+              num_beam_groups = 4,
+              diversity_penalty = 2.0,
+              early_stopping=True,
+              num_return_sequences=4
+              )
+    generated_questions = question_tokenizer.batch_decode(preds, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+    generated_questions = list(set(generated_questions))
+    returned_question = random.choice(generated_questions);
+    # Check if the final letter is a question mark
+    if returned_question[-1] != '?':
+        returned_question = returned_question.replace('.', '?')
+    return returned_question
 
 def clean_text(text):
     # strip sentenece
@@ -63,11 +90,11 @@ def paraphase_text(text):
               early_stopping=True,
               num_return_sequences=5
               )
-    predicted_answers = tokenizer.batch_decode(preds, skip_special_tokens=True, clean_up_tokenization_spaces=True)
+    generated_phrases = tokenizer.batch_decode(preds, skip_special_tokens=True, clean_up_tokenization_spaces=True)
     # Remove duplicates
-    predicted_answers = list(set(predicted_answers))
-    if predicted_answers is not None:
-        random_answer = random.choice(predicted_answers);
+    generated_phrases = list(set(generated_phrases))
+    if generated_phrases is not None:
+        random_answer = random.choice(generated_phrases);
         return random_answer
     else:
         return text
@@ -225,7 +252,16 @@ def get_building_intro(view_id: int):
         answer = paraphrase(sentences, paraphrase_rate=0.1, keep_rate=0.8, shuffle_chance=0.9)
         answer = '. '.join(answer)
         answer = random_start + views[str(view_id)] + answer
-        return {"story": answer}
+        
+        questions_context = passages[view_id];
+        if len(questions_context) > 4:
+            questions_context = random.sample(questions_context, 4)
+        
+        questions = []
+        for context in questions_context:
+            questions.append(create_question(context))
+        
+        return {"story": answer, "questions": questions}
     else:
         return {"story": None}
 
