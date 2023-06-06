@@ -22,7 +22,7 @@ app = FastAPI();
 # gpu_available = torch.cuda.is_available()
 # paraphraser = Parrot(model_tag="prithivida/parrot_paraphraser_on_T5", use_gpu=gpu_available)
 tokenizer = AutoTokenizer.from_pretrained("prithivida/parrot_paraphraser_on_T5")
-model = AutoModelForSeq2SeqLM.from_pretrained("./experiments/FineTunedParrotParaphraser")
+model = AutoModelForSeq2SeqLM.from_pretrained("./scripts/FineTunedParrotParaphraser")
 model.to('cuda');
 task_prefix = "paraphrase: ";
 print('INFO:     Loaded Paraphraser Model')
@@ -31,17 +31,15 @@ model_name = "deepset/roberta-base-squad2"
 qa = pipeline('question-answering', model=model_name, tokenizer=model_name)
 print('INFO:     Loaded QA Model')
 
-model_name = './experiments/FineTunedQuestionGeneration'
+model_name = './scripts/FineTunedQuestionGeneration'
 question_tokenizer = T5Tokenizer.from_pretrained(model_name)
 question_model = T5ForConditionalGeneration.from_pretrained(model_name)
-question_model.to('cuda');
 print('INFO:     Loaded Question Generation Model')
 
 # ---------------------- Functions needed ----------------------- #
 
 def create_question(passage):
     sentence_inputs = question_tokenizer([passage], return_tensors="pt", padding=True)
-    sentence_inputs = sentence_inputs.to('cuda')
     preds = question_model.generate(
               sentence_inputs['input_ids'],
               do_sample=False, 
