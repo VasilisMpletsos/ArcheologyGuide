@@ -167,14 +167,20 @@ for i, sentences in enumerate(passages):
 
 def paraphrase(sentences, paraphrase_rate=0.25, keep_rate=0.30, shuffle_chance=0.25):
     # Drop randomly keep_rate % of the sentences
-    sentences = [sentence for sentence in sentences if random.random() < keep_rate]
+    kept_sentences = []
+    discarded_sentences = []
+    for sentence in sentences:
+        if random.random() < keep_rate:
+            kept_sentences.append(sentence)
+        else:
+            discarded_sentences.append(sentence)
     # Loop through sentences
-    random_paraphrase = [random.random() < paraphrase_rate for i in range(len(sentences))]
-    random_phrases = [paraphase_text(sentence) if random_paraphrase[i] else sentence for i, sentence in enumerate(sentences)]
+    random_paraphrase = [random.random() < paraphrase_rate for i in range(len(kept_sentences))]
+    random_phrases = [paraphase_text(sentence) if random_paraphrase[i] else sentence for i, sentence in enumerate(kept_sentences)]
     # Shuffle final sentences
     if random.random() < shuffle_chance:
         random.shuffle(random_phrases)
-    return random_phrases
+    return random_phrases, discarded_sentences
 
 # ---------------------- General Section ----------------------- #
 
@@ -236,10 +242,10 @@ unanswerable_questions = [
 @app.get("/intro")
 def get_intro():
     random_intro = random.choice(intro)
-    answer = paraphrase(intro_story, paraphrase_rate=0, keep_rate=0.8, shuffle_chance=0.90)
-    answer = ''.join(answer)
-    answer = random_intro + answer
-    return {"intro": answer}
+    intro_sentences, discarded_sentences = paraphrase(intro_story, paraphrase_rate=0, keep_rate=0.8, shuffle_chance=0.90)
+    intro_sentences = ''.join(intro_sentences)
+    intro_sentences = random_intro + intro_sentences
+    return {"intro": intro_sentences}
     
 @app.get("/view/{view_id}")
 def get_building_intro(view_id: int):
@@ -249,19 +255,19 @@ def get_building_intro(view_id: int):
         sentences = general_informations[int(view_id)].split('.')
         # Keep sentences with more than 20 characters
         sentences = [clean_text(sentence) for sentence in sentences[:-1]]
-        answer = paraphrase(sentences, paraphrase_rate=0.1, keep_rate=0.8, shuffle_chance=0.9)
-        answer = '. '.join(answer)
-        answer = random_start + views[str(view_id)] + answer
+        view_sentences, discarded_sentences = paraphrase(sentences, paraphrase_rate=0.1, keep_rate=0.75, shuffle_chance=0.85)
+        view_sentences = '. '.join(view_sentences)
+        view_sentences = random_start + views[str(view_id)] + view_sentences
         
-        questions_context = passages[view_id];
+        questions_context = discarded_sentences;
         if len(questions_context) > 4:
             questions_context = random.sample(questions_context, 4)
-        
+            
         questions = []
         for context in questions_context:
             questions.append(create_question(context))
         
-        return {"story": answer, "questions": questions}
+        return {"story": view_sentences, "questions": questions}
     else:
         return {"story": None}
 
