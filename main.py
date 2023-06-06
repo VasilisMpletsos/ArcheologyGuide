@@ -8,7 +8,7 @@ import warnings
 from parrot import Parrot
 from typing import Union
 from fastapi import FastAPI
-from transformers import AutoTokenizer, AutoModel, AutoModelForSeq2SeqLM, pipeline
+from transformers import AutoTokenizer, AutoModel, AutoModelForQuestionAnswering, AutoModelForSeq2SeqLM, pipeline
 from langchain import PromptTemplate, LLMChain
 from langchain.llms import HuggingFacePipeline
 from sklearn.metrics.pairwise import cosine_similarity
@@ -26,6 +26,10 @@ model = AutoModelForSeq2SeqLM.from_pretrained("./experiments/FineTunedParrotPara
 model.to('cuda');
 task_prefix = "paraphrase: ";
 print('INFO:     Loaded Paraphraser Model')
+
+model_name = "deepset/roberta-base-squad2"
+qa = pipeline('question-answering', model=model_name, tokenizer=model_name)
+print('INFO:     Loaded QA Model')
 
 # ---------------------- Functions needed ----------------------- #
 
@@ -121,8 +125,8 @@ passages = [building1_passages,
             christian_basilica_passages]
 
 view_embeddings = []
-for i, passages in enumerate(passages):
-    encoded_input = similarity_tokenizer(passages[i], padding=True, truncation=True, return_tensors='pt')
+for i, sentences in enumerate(passages):
+    encoded_input = similarity_tokenizer(sentences, padding=True, truncation=True, return_tensors='pt')
     with torch.no_grad():
         model_output = similarity_model(**encoded_input)
     embeddings = mean_pooling(model_output, encoded_input['attention_mask'])
@@ -226,10 +230,19 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         similarities = cosine_similarity(question_embedding, view_embeddings[view_id])
         max_score = float(similarities.max())
         context = passages[view_id][np.argmax(similarities)]
-        if max_score > 0.2:
+        if max_score > 0.15:
+            
+            QA_input = {
+                'question': question,
+                'context': context
+            }
+            res = qa(QA_input)
+            answer_qa = res['answer']
+            
             question = 'Answer the following question only with the provided input. ' + question;
-            answer = llm_context_chain.predict(instruction=question, context=context).lstrip()
-            return {'passage': context, 'answer':answer, 'score': max_score}
+            answer_llm = llm_context_chain.predict(instruction=question, context=context).lstrip()
+            
+            return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'score': max_score}
         else:
             return {'passage': context, 'answer': random.choice(unanswerable_questions), 'score': max_score}
     else:
