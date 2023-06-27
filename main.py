@@ -15,6 +15,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
+random.seed(44)
 
 app = FastAPI();
 
@@ -117,8 +118,12 @@ LLM = pipeline(
     trust_remote_code=True,
     return_full_text=True,
     device_map="auto",
-    task="text-generation"
+    task="text-generation",
+    temperature=0.9,
+    top_p=0.9,
+    top_k=20,
 )
+
 # template for an instruction with input
 prompt_with_context = PromptTemplate(
     input_variables=["instruction", "context"],
@@ -145,15 +150,10 @@ fortress_passages = pd.read_csv('data/fortress_passages.csv')['passages'].to_lis
 necropolis_passages = pd.read_csv('data/necropolis_passages.csv')['passages'].to_list()
 
 passages = [building1_passages, 
-            building2_passages, 
             building3_passages, 
             building5_passages, 
-            demeters_temple_passages, 
-            vryokastraki_passages, 
-            christian_basilica_passages,
-            sanctuary_geometric_classical_times_passages,
-            fortress_passages,
-            necropolis_passages]
+            demeters_temple_passages,
+            ]
 
 view_embeddings = []
 for i, sentences in enumerate(passages):
@@ -211,10 +211,10 @@ openings = [
 ]
 
 views = {
-    '0': 'Building 1 of the Middle Plateau. ',
-    '1': 'Building 2 of the Middle Plateau. ',
-    '2': 'Building 3 of the Middle Plateau. ',
-    '3': 'Building 5 of the Middle Plateau. ',
+    '0': 'Building 1 of the Middle Plateau (Asklipeio). ',
+    '1': 'Building 2 of the Middle Plateau (Assistive to Building 1). ',
+    '2': 'Building 3 of the Middle Plateau (Ancient Sanctuary). ',
+    '3': 'Building 5 of the Middle Plateau. (Rectorate). ',
     '4': "Demeter's Sanctuary on the Acropolis. ",
     '5': 'Vryokastraki Island. ',
     '6': 'Cristian Basilica. ',
@@ -223,6 +223,8 @@ views = {
     '9': 'Necropolis of the ancient city. ',
 }
 known_views = views.keys()
+
+view_ids_allowed_questions = ['0', '2', '3', '4'];
 
 unanswerable_questions = [
     "I do not know the answer to this question.",
@@ -253,32 +255,34 @@ def get_building_intro(view_id: int):
         sentences = general_informations[int(view_id)].split('.')
         # Keep sentences with more than 20 characters
         sentences = [clean_text(sentence) for sentence in sentences[:-1]]
+
         view_sentences, discarded_sentences = paraphrase(sentences, paraphrase_rate=0.1, keep_rate=0.75, shuffle_chance=0.85)
         view_sentences = '. '.join(view_sentences)
         view_sentences = random_start + views[str(view_id)] + view_sentences
         
-        questions_context = discarded_sentences;
-        if len(questions_context) > 4:
-            questions_context = random.sample(questions_context, 4)
+        if len(discarded_sentences) > 4:
+            discarded_sentences = random.sample(discarded_sentences, 4)
             
         questions = []
-        for context in questions_context:
+        for context in discarded_sentences:
             questions.append(create_question(context))
         
-        return {"story": view_sentences, "questions": questions}
+        return {"story": view_sentences, "questions": questions, "question_responses": discarded_sentences, "questions_allowed": str(view_id) in view_ids_allowed_questions}
     else:
-        return {"story": None}
+        return {'error': "Wrong view id."}
 
 @app.get("/questions/{view_id}")
 def get_answer_to_question(view_id: int, question: Union[str, None] = None):
-    if str(view_id) in known_views:
+    if str(view_id) in view_ids_allowed_questions:
+        # get the index where the view id is in known_views
+        view_index = view_ids_allowed_questions.index(str(view_id))
         tokenized_query = similarity_tokenizer(question, padding=True, truncation=True, return_tensors='pt')
         embedded_query = similarity_model(**tokenized_query)
         question_embedding = mean_pooling(embedded_query, tokenized_query['attention_mask'])
         question_embedding = question_embedding.detach().numpy()
-        similarities = cosine_similarity(question_embedding, view_embeddings[view_id])
+        similarities = cosine_similarity(question_embedding, view_embeddings[view_index])
         max_score = float(similarities.max())
-        context = passages[view_id][np.argmax(similarities)]
+        context = passages[view_index][np.argmax(similarities)]
         
         QA_input = {
             'question': question,
@@ -287,12 +291,12 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         res = qa(QA_input)
         answer_qa = res['answer']
         
-        question = 'Answer the following question only with the provided input. If not answer is found tell that you cannot answer based on this context.' + question;
+        question = 'Answer the following question only with the provided input. If no answer is found tell that you cannot answer based on this context.' + question;
         answer_llm = llm_context_chain.predict(instruction=question, context=context).lstrip()
         
-        if max_score > 0.15 and max_score < 0.5:
+        if max_score > 0.4 and max_score < 0.8:
             return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'given_answer': answer_llm,'score': max_score}
-        elif max_score >= 0.5:
+        elif max_score >= 0.8:
             return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'given_answer': answer_qa,'score': max_score}
         else:
             return {'passage': context, 'answer': random.choice(unanswerable_questions), 'score': max_score}
