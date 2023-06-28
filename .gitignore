@@ -1,3 +1,4 @@
 __pycache__
 scripts/FineTunedParrotParaphraser
 scripts/FineTunedQuestionGeneration
+scripts/FineTunedDollyV2

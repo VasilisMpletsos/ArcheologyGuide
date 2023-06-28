@@ -12,6 +12,7 @@ from transformers import AutoTokenizer, AutoModel, AutoModelForSeq2SeqLM, pipeli
 from langchain import PromptTemplate, LLMChain
 from langchain.llms import HuggingFacePipeline
 from sklearn.metrics.pairwise import cosine_similarity
+from functions import *
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
@@ -59,21 +60,6 @@ def create_question(passage):
         returned_question = returned_question.replace('.', '?')
     return returned_question
 
-def clean_text(text):
-    # strip sentenece
-    text = text.strip()
-    # remove tabs
-    text = text.replace('\t', '')
-    # remove new lines
-    text = text.replace('\n', '')
-    return text
-
-# Mean Pooling - Take attention mask into account for correct averaging
-def mean_pooling(model_output, attention_mask):
-    token_embeddings = model_output[0] #First element of model_output contains all token embeddings
-    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
-    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
-
 def paraphase_text(text):
     # para_phrases = paraphraser.augment(input_phrase=text, diversity_ranker="levenshtein", do_diverse=False, adequacy_threshold = 0.7, fluency_threshold = 0.7);
     # get 2 instructions from the dataset
@@ -111,26 +97,12 @@ general_informations = general_informations['general_informations'].to_list()
 print('INFO:     Loaded General Descriptions')
 
 
-# Load the LLM model
-LLM = pipeline(
-    model="databricks/dolly-v2-3b", 
-    torch_dtype=torch.bfloat16, 
-    trust_remote_code=True,
-    return_full_text=True,
-    device_map="auto",
-    task="text-generation",
-    temperature=0.9,
-    top_p=0.9,
-    top_k=20,
+LLM_model, LLM_tokenizer = get_model_tokenizer(
+    pretrained_model_name_or_path = "./scripts/FineTunedDollyV2", 
+    gradient_checkpoint = False
 )
 
-# template for an instruction with input
-prompt_with_context = PromptTemplate(
-    input_variables=["instruction", "context"],
-    template="{instruction}\n\nInput:\n{context}")
-
-hf_pipeline = HuggingFacePipeline(pipeline=LLM)
-llm_context_chain = LLMChain(llm=hf_pipeline, prompt=prompt_with_context)
+LLM_model = LLM_model.to('cuda');
 print('INFO:     Loaded LLM Model')
 
 # Load model from HuggingFace Hub
@@ -284,6 +256,7 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         max_score = float(similarities.max())
         context = passages[view_index][np.argmax(similarities)]
         
+        # Calculate the answer of the QA model
         QA_input = {
             'question': question,
             'context': context
@@ -291,13 +264,19 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         res = qa(QA_input)
         answer_qa = res['answer']
         
-        question = 'Answer the following question only with the provided input. If no answer is found tell that you cannot answer based on this context.' + question;
-        answer_llm = llm_context_chain.predict(instruction=question, context=context).lstrip()
-        
-        if max_score > 0.4 and max_score < 0.8:
-            return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'given_answer': answer_llm,'score': max_score}
-        elif max_score >= 0.8:
-            return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'given_answer': answer_qa,'score': max_score}
+        # If relevant answer is found
+        if max_score > 0.4:
+            if res['score'] > 0.5:
+                # If QA model is confident then return its answer
+                return {'passage': context, 'answer': answer_qa,'score': max_score}
+            else:
+                # Else return the answer of the LLM model
+                question = 'Answer the following question only with the provided input. If no answer is found tell that you cannot answer based on this context.' + question;
+                pre_process_result = preprocess(LLM_tokenizer, question, context);
+                model_result = forward(LLM_model, LLM_tokenizer, pre_process_result);
+                final_output = postprocess(LLM_tokenizer, model_result);
+                answer_llm = final_output[0]['generated_text'];
+                return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'answer': answer_llm,'score': max_score}
         else:
             return {'passage': context, 'answer': random.choice(unanswerable_questions), 'score': max_score}
     else:
