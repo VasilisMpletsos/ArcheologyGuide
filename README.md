@@ -1,5 +1,6 @@
 # ArcheologyGuide
-This is the repository for the Archeology Guide for the Palimpsisto Project.
+This is the repository for the Archeology Guide for the Palimpsisto Research Program. This is a research and development proof of concept that was conducted from Centre for Research and Technology of Greece.
+It is intended to be used on a proof of concept VR platform where the user will get clever and unique info for each archeological time each time.
 This project is supported by the PALIMPSISTO project cofinanced by the European Regional Development Fund of the European Union and Greek national funds through the Operational Program Competitiveness, Entrepreneurship and Innovation, under the call RESEARCH–CREATE– INNOVATE (project code: T2EDK-01894).
 
 
