@@ -155,29 +155,13 @@ def postprocess(tokenizer, model_outputs):
         records.append(rec)
     return records
 
-### Model Loading
-def load_tokenizer(pretrained_model_name_or_path):
-    tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
-    # Make the pad token the same as end of string token
-    tokenizer.pad_token = tokenizer.eos_token
-    # Add the special tokens to the tokenizer
-    tokenizer.add_special_tokens(
-        {"additional_special_tokens": [END_KEY, INSTRUCTION_KEY, RESPONSE_KEY_NL, RESPONSE_KEY]}
-    )
-    return tokenizer
-
-def load_model(pretrained_model_name_or_path, gradient_checkpoint):
-    model = AutoModelForCausalLM.from_pretrained(
+def get_model_tokenizer(pretrained_model_name_or_path):
+    tokenizer = tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name_or_path)
+    model = model = AutoModelForCausalLM.from_pretrained(
         pretrained_model_name_or_path, 
         torch_dtype = torch.bfloat16,
-        use_cache = False if gradient_checkpoint else True
-    )
-    return model
-
-def get_model_tokenizer(pretrained_model_name_or_path, gradient_checkpoint):
-    tokenizer = load_tokenizer('databricks/dolly-v2-3b')
-    model = load_model(pretrained_model_name_or_path, gradient_checkpoint)
-    model.resize_token_embeddings(len(tokenizer))
+    );
+    model.resize_token_embeddings(len(tokenizer));
     return model, tokenizer
 
 def clean_text(text):

@@ -99,12 +99,8 @@ general_informations = pd.read_csv('./data/general_informations.csv')
 general_informations = general_informations['general_informations'].to_list()
 print('INFO:     Loaded General Descriptions')
 
-
-LLM_model, LLM_tokenizer = get_model_tokenizer(
-    pretrained_model_name_or_path = "./scripts/FineTunedDollyV2", 
-    gradient_checkpoint = False
-)
-
+# Load the LLM Dolly v2 3b model with its tokenizer
+LLM_model, LLM_tokenizer = get_model_tokenizer(pretrained_model_name_or_path = "./scripts/FineTunedDollyV2");
 LLM_model = LLM_model.to('cuda');
 print('INFO:     Loaded LLM Model')
 
@@ -268,7 +264,7 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         answer_qa = res['answer']
         
         # If relevant answer is found
-        if max_score > 0.4:
+        if max_score > 0.2:
             if res['score'] > 0.5:
                 # If QA model is confident then return its answer
                 return {'passage': context, 'answer': answer_qa,'score': max_score}
