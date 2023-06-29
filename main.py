@@ -5,6 +5,7 @@ import random
 import numpy as np
 import warnings
 
+
 from parrot import Parrot
 from typing import Union
 from fastapi import FastAPI
@@ -13,12 +14,14 @@ from langchain import PromptTemplate, LLMChain
 from langchain.llms import HuggingFacePipeline
 from sklearn.metrics.pairwise import cosine_similarity
 from functions import *
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 
 # Suppress warnings
 warnings.filterwarnings("ignore")
 random.seed(44)
 
 app = FastAPI();
+app.add_middleware(HTTPSRedirectMiddleware)
 
 # Load the paraphraser model
 # gpu_available = torch.cuda.is_available()
