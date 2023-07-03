@@ -130,27 +130,12 @@ def postprocess(tokenizer, model_outputs):
             except ValueError:
                 print("Could not find end key, the output is truncated!")
                 end_pos = None
+                
+        if end_pos:
             decoded = tokenizer.decode(sequence[response_pos + 1 : end_pos], skip_special_tokens=True).strip()
-            
-        if not decoded:
-            # Otherwise we'll decode everything and use a regex to find the response and end.
+        else:
+            decoded = "Cannot answer this question."
 
-            fully_decoded = tokenizer.decode(sequence)
-            # The response appears after "### Response:".  The model has been trained to append "### End" at the
-            # end.
-            m = re.search(r"#+\s*Response:\s*(.+?)#+\s*End", fully_decoded, flags=re.DOTALL)
-            if m:
-                decoded = m.group(1).strip()
-            else:
-                # The model might not generate the "### End" sequence before reaching the max tokens.  In this case,
-                # return everything after "### Response:".
-                m = re.search(r"#+\s*Response:\s*(.+)", fully_decoded, flags=re.DOTALL)
-                if m:
-                    decoded = m.group(1).strip()
-                else:
-                    print(f"Failed to find response in:\n{fully_decoded}")
-            
-            
         rec = {"generated_text": decoded}
         records.append(rec)
     return records

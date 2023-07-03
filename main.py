@@ -21,7 +21,7 @@ warnings.filterwarnings("ignore")
 random.seed(44)
 
 app = FastAPI();
-app.add_middleware(HTTPSRedirectMiddleware)
+# app.add_middleware(HTTPSRedirectMiddleware)
 
 # Load the paraphraser model
 # gpu_available = torch.cuda.is_available()
@@ -116,9 +116,10 @@ building5_passages = pd.read_csv('data/building5_passages.csv')['passages'].to_l
 demeters_temple_passages = pd.read_csv('data/demeter_sanctuary_passages.csv')['passages'].to_list()
 vryokastraki_passages = pd.read_csv('data/vryokastraki_passages.csv')['passages'].to_list()
 christian_basilica_passages = pd.read_csv('data/christian_basilica_passages.csv')['passages'].to_list()
-sanctuary_geometric_classical_times_passages = pd.read_csv('data/sanctuary_geometric_classical_times_passages.csv')['passages'].to_list()
+sanctuary_geometric_passages = pd.read_csv('data/sanctuary_geometric_passages.csv')['passages'].to_list()
 fortress_passages = pd.read_csv('data/fortress_passages.csv')['passages'].to_list()
 necropolis_passages = pd.read_csv('data/necropolis_passages.csv')['passages'].to_list()
+findings = pd.read_csv('data/findings.csv')['passages'].to_list()
 
 passages = [building1_passages, 
             building3_passages, 
@@ -167,9 +168,8 @@ openings = [
     'You are looking at ',
     'This is the ',
     'In front of you is the ',
+    'In front of you, you can see the ',
     'You are standing in front of the ',
-    'You have opened ',
-    'You have opened the ',
     'You are in front of ',
     'You are looking at the ',
     'You are looking ',
@@ -177,10 +177,23 @@ openings = [
     'Now you are looking at the ',
     'Now you are looking at ',
     'Now you are looking ',
-    'Now you have opened the ',
-    'Now you have opened ',
 ]
 
+# Settings for each view
+views_settings = [
+    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.8, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.25, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
+]
+
+# Specific views
 views = {
     '0': 'Building 1 of the Middle Plateau (Asklipeio). ',
     '1': 'Building 2 of the Middle Plateau (Assistive to Building 1). ',
@@ -193,9 +206,26 @@ views = {
     '8': 'Fortress in the southern sector of Acropolis. ',
     '9': 'Necropolis of the ancient city. ',
 }
-known_views = views.keys()
+known_views = views.keys();
 
+# For which buildings to allow questions
 view_ids_allowed_questions = ['0', '2', '3', '4'];
+
+views_findings = {
+    '0': 'Pebbled floor (Building 1, Room A)',
+    '1': 'Statue foundation (Building 1, Room C)',
+    '2': 'Aprodite statue (Building 1, Outside Room C)',
+    '3': 'Water tank Opening (Building 1, NE corner)',
+    '4': 'Water tank Interior Findings',
+    '5': 'Water Channel (Building 5)',
+    '6': 'Staircase for upper floor (Building 5)',
+    '7': 'Room A (Building 5)',
+    '8': 'Room Z (Building 5)',
+}
+known_findings = views_findings.keys();
+
+
+
 
 unanswerable_questions = [
     "I do not know the answer to this question.",
@@ -222,12 +252,18 @@ def get_intro():
 def get_building_intro(view_id: int):
     random_start = random.choice(openings)
     if str(view_id) in known_views:
+        int_id = int(view_id);
         # Split text into sentences
-        sentences = general_informations[int(view_id)].split('.')
+        sentences = general_informations[int_id].split('.')
         # Keep sentences with more than 20 characters
         sentences = [clean_text(sentence) for sentence in sentences[:-1]]
+        
+        # Get the settings for this view
+        paraphrase_rate = views_settings[int_id]['paraphrase_rate_setting'];
+        keep_rate = views_settings[int_id]['keep_rate_setting'];
+        shuffle_rate = views_settings[int_id]['shuffle_rate_setting'];
 
-        view_sentences, discarded_sentences = paraphrase(sentences, paraphrase_rate=0.1, keep_rate=0.75, shuffle_chance=0.85)
+        view_sentences, discarded_sentences = paraphrase(sentences, paraphrase_rate, keep_rate, shuffle_rate)
         view_sentences = '. '.join(view_sentences)
         view_sentences = random_start + views[str(view_id)] + view_sentences
         
@@ -281,6 +317,24 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
     else:
         return {'error': "Wrong view id."}
     
+@app.get("/findings/{finding_id}")
+def get_finding(finding_id: int):
+    if str(finding_id) in known_findings:
+        int_finding_id = int(finding_id);
+         # Split text into sentences
+        sentences = findings[int_finding_id].split('.');
+        # Keep sentences with more than 20 characters
+        sentences = [clean_text(sentence) for sentence in sentences[:-1]];
+        finding_sentence, _ = paraphrase(sentences, 0.3, 1.0, 0.0);
+        finding_sentence = '. '.join(finding_sentence);
+        return {"finding": finding_sentence}
+    else:
+        return {'error': "Wrong finding id."}
+    
 @app.get("/get_views")
 def get_views():
         return views
+    
+@app.get("/get_findings")
+def get_findings():
+        return views_findings
