@@ -24,11 +24,9 @@ app = FastAPI();
 # app.add_middleware(HTTPSRedirectMiddleware)
 
 # Load the paraphraser model
-# gpu_available = torch.cuda.is_available()
-# paraphraser = Parrot(model_tag="prithivida/parrot_paraphraser_on_T5", use_gpu=gpu_available)
 tokenizer = AutoTokenizer.from_pretrained("prithivida/parrot_paraphraser_on_T5")
-model = AutoModelForSeq2SeqLM.from_pretrained("./scripts/FineTunedParrotParaphraser")
-model.to('cuda');
+paraphrase_model = AutoModelForSeq2SeqLM.from_pretrained("./scripts/FineTunedParrotParaphraser")
+paraphrase_model.to('cuda');
 task_prefix = "paraphrase: ";
 print('INFO:     Loaded Paraphraser Model')
 
@@ -49,9 +47,9 @@ def create_question(passage):
               sentence_inputs['input_ids'],
               do_sample=False, 
               max_length=256, 
-              num_beams = 8,
+              num_beams = 16,
               num_beam_groups = 4,
-              diversity_penalty = 2.0,
+              diversity_penalty = 3.0,
               early_stopping=True,
               num_return_sequences=4
               )
@@ -68,15 +66,15 @@ def paraphase_text(text):
     # get 2 instructions from the dataset
     inputs = tokenizer([task_prefix + text], return_tensors="pt", padding=True)
     inputs = inputs.to('cuda')
-    preds = model.generate(
+    preds = paraphrase_model.generate(
               inputs['input_ids'],
               do_sample=False, 
               max_length=256, 
-              num_beams = 8,
+              num_beams = 32,
               num_beam_groups = 4,
-              diversity_penalty = 2.0,
+              diversity_penalty = 3.0,
               early_stopping=True,
-              num_return_sequences=5
+              num_return_sequences=4
               )
     generated_phrases = tokenizer.batch_decode(preds, skip_special_tokens=True, clean_up_tokenization_spaces=True)
     # Remove duplicates
@@ -182,7 +180,7 @@ openings = [
 # Settings for each view
 views_settings = [
     {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
-    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.8, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 1.0, "shuffle_rate_setting": 0.9},
     {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
     {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
     {"paraphrase_rate_setting": 0.25, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
@@ -300,8 +298,9 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         answer_qa = res['answer']
         
         # If relevant answer is found
-        if max_score > 0.2:
-            if res['score'] > 0.5:
+        print(max_score);
+        if max_score > 0.4:
+            if res['score'] > 0.4:
                 # If QA model is confident then return its answer
                 return {'passage': context, 'answer': answer_qa,'score': max_score}
             else:
