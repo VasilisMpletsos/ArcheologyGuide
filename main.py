@@ -10,9 +10,7 @@ from parrot import Parrot
 from typing import Union
 from fastapi import FastAPI
 from transformers import AutoTokenizer, AutoModel, AutoModelForSeq2SeqLM, pipeline, T5ForConditionalGeneration, T5Tokenizer
-from langchain import PromptTemplate, LLMChain
-from langchain.llms import HuggingFacePipeline
-from sklearn.metrics.pairwise import cosine_similarity
+from sentence_transformers.util import semantic_search
 from functions import *
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 
@@ -103,8 +101,8 @@ LLM_model = LLM_model.to('cuda');
 print('INFO:     Loaded LLM Model')
 
 # Load model from HuggingFace Hub
-similarity_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
-similarity_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L6-v2')
+similarity_tokenizer = AutoTokenizer.from_pretrained('sentence-transformers/all-MiniLM-L12-v2')
+similarity_model = AutoModel.from_pretrained('sentence-transformers/all-MiniLM-L12-v2')
 print('INFO:     Loaded Similarity Model')
 
 building1_passages = pd.read_csv('data/building1_passages.csv')['passages'].to_list()
@@ -285,9 +283,11 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         embedded_query = similarity_model(**tokenized_query)
         question_embedding = mean_pooling(embedded_query, tokenized_query['attention_mask'])
         question_embedding = question_embedding.detach().numpy()
-        similarities = cosine_similarity(question_embedding, view_embeddings[view_index])
-        max_score = float(similarities.max())
-        context = passages[view_index][np.argmax(similarities)]
+        retrieved = semantic_search(question_embedding, view_embeddings[view_index], top_k=1);
+        retrieved = retrieved[0][0];
+        max_pos = retrieved['corpus_id'];
+        max_score = retrieved['score'];
+        context = passages[view_index][max_pos]
         
         # Calculate the answer of the QA model
         QA_input = {
@@ -299,7 +299,7 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         
         # If relevant answer is found
         print(max_score);
-        if max_score > 0.4:
+        if max_score > 0.35:
             if res['score'] > 0.4:
                 # If QA model is confident then return its answer
                 return {'passage': context, 'answer': answer_qa,'score': max_score}
