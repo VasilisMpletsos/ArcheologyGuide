@@ -35,6 +35,9 @@ print('INFO:     Loaded QA Model')
 model_name = './scripts/FineTunedQuestionGeneration'
 question_tokenizer = T5Tokenizer.from_pretrained(model_name)
 question_model = T5ForConditionalGeneration.from_pretrained(model_name)
+# model_name = 'potsawee/t5-large-generation-squad-QuestionAnswer'
+# question_tokenizer = AutoTokenizer.from_pretrained("potsawee/t5-large-generation-squad-QuestionAnswer")
+# question_model = AutoModelForSeq2SeqLM.from_pretrained("potsawee/t5-large-generation-squad-QuestionAnswer")
 print('INFO:     Loaded Question Generation Model')
 
 # ---------------------- Functions needed ----------------------- #
@@ -47,16 +50,15 @@ def create_question(passage):
               max_length=256, 
               num_beams = 16,
               num_beam_groups = 4,
-              diversity_penalty = 3.0,
+              diversity_penalty = 2.0,
               early_stopping=True,
               num_return_sequences=4
               )
-    generated_questions = question_tokenizer.batch_decode(preds, skip_special_tokens=True, clean_up_tokenization_spaces=True)
-    generated_questions = list(set(generated_questions))
+    generated_questions = question_tokenizer.batch_decode(preds, skip_special_tokens=True, clean_up_tokenization_spaces=True);
+    generated_questions = list(set(generated_questions));
+    generated_questions = [x for x in generated_questions if x[-1] == '?']
     returned_question = random.choice(generated_questions);
-    # Check if the final letter is a question mark
-    if returned_question[-1] != '?':
-        returned_question = returned_question.replace('.', '?')
+    # returned_question = returned_question.split('?')[0] + '?';
     return returned_question
 
 def paraphase_text(text):
@@ -177,16 +179,16 @@ openings = [
 
 # Settings for each view
 views_settings = [
-    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.9, "shuffle_rate_setting": 0.9},
     {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 1.0, "shuffle_rate_setting": 0.9},
-    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
-    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
-    {"paraphrase_rate_setting": 0.25, "keep_rate_setting": 0.7, "shuffle_rate_setting": 0.9},
-    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
-    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
-    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
-    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
-    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.75, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.9, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.9, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.2, "keep_rate_setting": 0.9, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.9, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.9, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.9, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.9, "shuffle_rate_setting": 0.9},
+    {"paraphrase_rate_setting": 0.1, "keep_rate_setting": 0.9, "shuffle_rate_setting": 0.9},
 ]
 
 # Specific views
@@ -275,7 +277,7 @@ def get_building_intro(view_id: int):
         return {'error': "Wrong view id."}
 
 @app.get("/questions/{view_id}")
-def get_answer_to_question(view_id: int, question: Union[str, None] = None):
+def get_answer_to_question(view_id: int, question: str):
     if str(view_id) in view_ids_allowed_questions:
         # get the index where the view id is in known_views
         view_index = view_ids_allowed_questions.index(str(view_id))
@@ -299,10 +301,11 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
         
         # If relevant answer is found
         print(max_score);
-        if max_score > 0.35:
+        if max_score > 0.33:
             if res['score'] > 0.4:
                 # If QA model is confident then return its answer
-                return {'passage': context, 'answer': answer_qa,'score': max_score}
+                # return {'answer': answer_qa}
+                return {'passage': context, 'answer': answer_qa}
             else:
                 # Else return the answer of the LLM model
                 question = 'Answer the following question only with the provided input. If no answer is found tell that you cannot answer based on this context.' + question;
@@ -311,7 +314,9 @@ def get_answer_to_question(view_id: int, question: Union[str, None] = None):
                 final_output = postprocess(LLM_tokenizer, model_result);
                 answer_llm = final_output[0]['generated_text'];
                 return {'passage': context, 'answer_qa':answer_qa, 'answer_llm': answer_llm, 'answer': answer_llm,'score': max_score}
+                # return {'answer': answer_llm}
         else:
+            # return {'answer': random.choice(unanswerable_questions)}
             return {'passage': context, 'answer': random.choice(unanswerable_questions), 'score': max_score}
     else:
         return {'error': "Wrong view id."}
@@ -326,7 +331,7 @@ def get_finding(finding_id: int):
         sentences = [clean_text(sentence) for sentence in sentences[:-1]];
         finding_sentence, _ = paraphrase(sentences, 0.3, 1.0, 0.0);
         finding_sentence = '. '.join(finding_sentence);
-        return {"finding": finding_sentence}
+        return {"story": finding_sentence}
     else:
         return {'error': "Wrong finding id."}
     
